@@ -15,6 +15,7 @@ pub enum PassesCalculationError {
 
 #[derive(Debug)]
 pub struct PassData {
+    pub satellite_name: String,
     pub rise_time: DateTime<Utc>,
     pub fall_time: DateTime<Utc>,
     pub apogee_time: DateTime<Utc>,
@@ -40,6 +41,21 @@ fn find_satrec(tle_file_path: &str, satellite_name: &str)
         Some(satrec) => Ok(satrec),
         None => Err(PassesCalculationError::SatelliteNotFound)
     }
+}
+
+fn get_elevation(
+    satrec: &mut satellite::io::Satrec,
+    observer: &satellite::Geodedic,
+    time: DateTime<Utc>,
+) -> f64 {
+    let propogation = match satellite::propogation::propogate_datetime(satrec, time) {
+        Ok(propogation) => propogation,
+        Err(_) => return f64::NAN
+    };
+    let gmst = satellite::propogation::gstime::gstime_datetime(time);
+    let position_ecf = satellite::transforms::eci_to_ecf(&propogation.position, gmst);
+    let look_angles = satellite::transforms::ecf_to_look_angles(observer, &position_ecf);
+    look_angles.elevation
 }
 
 fn get_max_parab<F>(mut fun: F, start: f64, end: f64, tol: f64) -> f64
@@ -115,14 +131,7 @@ pub fn get_satellite_passes(
 
     let mut get_elevation = |shift_minutes: f64| -> f64 {
         let current_time = start_time + Duration::seconds((shift_minutes * 60.0) as i64);
-        let propogation = match satellite::propogation::propogate_datetime(&mut satrec, current_time) {
-            Ok(propogation) => propogation,
-            Err(_) => return f64::NAN
-        };
-        let gmst = satellite::propogation::gstime::gstime_datetime(current_time);
-        let position_ecf = satellite::transforms::eci_to_ecf(&propogation.position, gmst);
-        let look_angles = satellite::transforms::ecf_to_look_angles(&observer, &position_ecf);
-        look_angles.elevation
+        get_elevation(&mut satrec, &observer, current_time)
     };
 
     let mut result = vec![];
@@ -170,6 +179,7 @@ pub fn get_satellite_passes(
                     let apogee_time = start_time + Duration::seconds((60.0 * apogee_mins) as i64);
 
                     let pass = PassData {
+                        satellite_name: satellite_name.to_string(),
                         rise_time: rt,
                         fall_time,
                         apogee_time,
@@ -218,6 +228,8 @@ pub fn get_filtered_passes(
     min_elevation: f64, min_apogee: f64,
     lat: f64, lon: f64, alt: f64,
 ) -> Result<Vec<PassData>, PassesCalculationError> {
+    let min_elevation_rad = min_elevation * satellite::constants::DEG_2_RAD;
+
     let mut all_passes = vec![];
 
     for satellite_name in satellite_names {
@@ -227,15 +239,73 @@ pub fn get_filtered_passes(
             lat, lon, alt,
         )?;
 
-        let passes: Vec<PassData> = passes.into_iter()
-            .filter(|pass_data| pass_data.apogee_elevation >= min_apogee)
+        let mut passes: Vec<PassData> = passes.into_iter()
+            .filter(|pass_data| {
+                pass_data.apogee_elevation >= min_apogee &&
+                    pass_data.apogee_elevation >= min_elevation
+            })
             .collect();
 
-        let passes: Vec<PassData> = passes.into_iter()
-            .map(|| {})
-            .collect();
+        let mut satrec = find_satrec(tle_file_path, satellite_name)?;
+        let observer = satellite::Geodedic {
+            longitude: lon * satellite::constants::DEG_2_RAD,
+            latitude: lat * satellite::constants::DEG_2_RAD,
+            height: alt,
+        };
 
+        for pass_data in &mut passes {
+            let rise_time = pass_data.rise_time;
+
+            let mut get_elevation = |shift_minutes: f64| -> f64 {
+                let current_time = rise_time + Duration::seconds((shift_minutes * 60.0) as i64);
+                get_elevation(&mut satrec, &observer, current_time)
+            };
+
+            let mut prev_elevation = get_elevation(0.0);
+            let pass_duration = (pass_data.fall_time - pass_data.rise_time).num_seconds() as f64 / 60.0;
+
+            for shift in 1..=pass_duration as i64 {
+                let current_elevation = get_elevation(shift as f64);
+
+                if prev_elevation <= min_elevation_rad && min_elevation_rad <= current_elevation {
+                    let rise_mins = get_root(
+                        |shift| { get_elevation(shift) - min_elevation_rad },
+                        (shift - 1) as f64,
+                        shift as f64,
+                    )?;
+
+                    pass_data.rise_time += Duration::seconds((rise_mins * 60.0) as i64);
+                    break;
+                }
+
+                prev_elevation = current_elevation;
+            }
+
+            prev_elevation = get_elevation(pass_duration);
+
+            for shift in (0..=pass_duration as i64 - 1).rev() {
+                let current_elevation = get_elevation(shift as f64);
+
+                if prev_elevation <= min_elevation_rad && min_elevation_rad <= current_elevation {
+                    let fall_mins = get_root(
+                        |shift| { get_elevation(shift) - min_elevation_rad },
+                        (shift + 1) as f64,
+                        shift as f64,
+                    )?;
+
+                    let fall_mins_from_end = pass_duration - fall_mins;
+                    pass_data.fall_time -= Duration::seconds((fall_mins_from_end * 60.0) as i64);
+                    break;
+                }
+
+                prev_elevation = current_elevation;
+            }
+        }
+
+        all_passes.extend(passes);
     }
+
+    all_passes.sort_by_key(|pass_data| pass_data.rise_time);
 
     Ok(all_passes)
 }

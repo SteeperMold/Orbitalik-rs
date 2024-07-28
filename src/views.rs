@@ -4,7 +4,7 @@ use chrono::{Duration, NaiveDateTime};
 
 use super::AppState;
 use super::forms::FormData;
-use super::calculations::{get_satellite_passes, get_observer_look};
+use super::calculations::{get_satellite_passes, get_observer_look, get_filtered_passes};
 
 pub async fn get_passes(data: web::Data<AppState>) -> HttpResponse {
     let mut ctx = tera::Context::new();
@@ -22,11 +22,14 @@ pub async fn show_passes(form: web::Query<FormData>) -> HttpResponse {
         .expect("failed to parse datetime")
         .and_utc();
 
-    let passes = match get_satellite_passes("data/tle.txt", "ISS (ZARYA)",
-                                            start_time, Duration::hours(form.duration as i64),
-                                            form.lat, form.lon, form.alt / 1000.0) {
+    let passes = match get_filtered_passes(
+        "data/tle.txt", vec!["ISS (ZARYA)", "NOAA 19", "METEOR-M 2"],
+        start_time, Duration::hours(form.duration as i64),
+        form.min_elevation, form.min_apogee,
+        form.lat, form.lon, form.alt / 1000.0,
+    ) {
         Ok(passes) => passes,
-        Err(_) => return HttpResponse::BadRequest().body("")
+        Err(error) => return HttpResponse::BadRequest().body(format!("{}", error))
     };
 
     HttpResponse::Ok().body(format!("{:#?}", passes))
