@@ -1,0 +1,17 @@
+{
+  "tle_urls": [
+    "http://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
+  ],
+  "delay_seconds": 7200,
+  "do_track_everything": true,
+  "satellites_to_track": [
+    "ISS (ZARYA)",
+    "NOAA 15",
+    "NOAA 18",
+    "NOAA 19",
+    "METEOR-M2 3",
+    "METEOR-M2 4",
+    "METOP-B",
+    "METOP-C"
+  ]
+}

@@ -1,3 +1,4 @@
+use std::time::Duration;
 use actix_web::{web, App, HttpServer, middleware::Logger};
 use actix_files::Files;
 use tera::Tera;
@@ -5,6 +6,7 @@ use tera::Tera;
 mod views;
 mod forms;
 mod calculations;
+mod fetch_tle;
 
 struct AppState {
     tmpl: Tera,
@@ -15,6 +17,18 @@ struct AppState {
 async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "warn");
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+
+    actix_rt::spawn(async {
+        let fetching_settings = fetch_tle::read_settings("data/tle_fetching_settings.json");
+        let mut interval = actix_rt::time::interval(Duration::from_secs(fetching_settings.delay_seconds));
+        loop {
+            interval.tick().await;
+            match fetch_tle::fetch_tle(&fetching_settings).await {
+                Ok(_) => log::warn!("Tle fethcing success"),
+                Err(error) => log::warn!("Failed to fetch tle with this error: {:?}", error),
+            };
+        }
+    });
 
     HttpServer::new(|| {
         let tera = Tera::new(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*")).unwrap();
