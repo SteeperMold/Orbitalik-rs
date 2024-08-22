@@ -1,7 +1,8 @@
 use chrono::{DateTime, Duration, Utc};
 use roots::{find_root_brent, SimpleConvergency};
+use thiserror::Error;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum PassesCalculationError {
     #[error("Failed to open tle at the specified path")]
     TleLoadingFailed(#[from] std::io::Error),
@@ -17,34 +18,33 @@ pub enum PassesCalculationError {
 pub struct PassData {
     pub satellite_name: String,
     pub rise_time: DateTime<Utc>,
-    pub fall_time: DateTime<Utc>,
+    pub rise_azimuth: f64,
     pub apogee_time: DateTime<Utc>,
     pub apogee_elevation: f64,
+    pub apogee_azimuth: f64,
+    pub fall_time: DateTime<Utc>,
+    pub fall_azimuth: f64,
 }
 
-fn find_satrec(tle_file_path: &str, satellite_name: &str)
-               -> Result<satellite::io::Satrec, PassesCalculationError> {
+pub fn find_satrec(
+    tle_file_path: &str, satellite_name: &str,
+) -> Result<satellite::io::Satrec, PassesCalculationError> {
     let tle = std::fs::read_to_string(tle_file_path)?;
     let (satrecs, _errors) = satellite::io::parse_multiple(&tle);
 
-    let mut satrec = None;
     for possible_satrec in satrecs {
         if let Some(possible_name) = &possible_satrec.name {
             if possible_name == satellite_name {
-                satrec = Some(possible_satrec);
-                break;
+                return Ok(possible_satrec);
             }
         }
     }
 
-    match satrec {
-        Some(satrec) => Ok(satrec),
-        None => Err(PassesCalculationError::SatelliteNotFound)
-    }
+    Err(PassesCalculationError::SatelliteNotFound)
 }
 
-fn get_elevation(
-    satrec: &mut satellite::io::Satrec,
+fn get_elevation_safe(
+    satrec: &satellite::io::Satrec,
     observer: &satellite::Geodedic,
     time: DateTime<Utc>,
 ) -> f64 {
@@ -56,6 +56,44 @@ fn get_elevation(
     let position_ecf = satellite::transforms::eci_to_ecf(&propogation.position, gmst);
     let look_angles = satellite::transforms::ecf_to_look_angles(observer, &position_ecf);
     look_angles.elevation
+}
+
+fn get_observer_look(
+    satrec: &satellite::io::Satrec,
+    time: DateTime<Utc>,
+    observer: &satellite::Geodedic,
+) -> Result<satellite::Bearing, PassesCalculationError> {
+    let propogation = match satellite::propogation::propogate_datetime(satrec, time) {
+        Ok(propogation) => propogation,
+        Err(_) => return Err(PassesCalculationError::PropogationError),
+    };
+
+    let gmst = satellite::propogation::gstime::gstime_datetime(time);
+    let position_ecf = satellite::transforms::eci_to_ecf(&propogation.position, gmst);
+    let mut look_angles = satellite::transforms::ecf_to_look_angles(&observer, &position_ecf);
+
+    look_angles.elevation *= satellite::constants::RAD_TO_DEG;
+    look_angles.azimuth *= satellite::constants::RAD_TO_DEG;
+
+    Ok(look_angles)
+}
+
+pub fn get_satellite_pos(
+    satrec: &satellite::io::Satrec,
+    time: DateTime<Utc>,
+) -> Result<satellite::Geodedic, PassesCalculationError> {
+    let propogation = match satellite::propogation::propogate_datetime(satrec, time) {
+        Ok(propogation) => propogation,
+        Err(_) => return Err(PassesCalculationError::PropogationError),
+    };
+
+    let gmst = satellite::propogation::gstime::gstime_datetime(time);
+    let mut sat_pos = satellite::transforms::eci_to_geodedic(&propogation.position, gmst);
+
+    sat_pos.longitude *= satellite::constants::RAD_TO_DEG;
+    sat_pos.latitude *= satellite::constants::RAD_TO_DEG;
+
+    Ok(sat_pos)
 }
 
 fn get_max_parab<F>(mut fun: F, start: f64, end: f64, tol: f64) -> f64
@@ -117,12 +155,10 @@ fn get_root<F>(mut fun: F, start: f64, end: f64) -> Result<f64, PassesCalculatio
 }
 
 pub fn get_satellite_passes(
-    tle_file_path: &str, satellite_name: &str,
+    satrec: &satellite::io::Satrec,
     start_time: DateTime<Utc>, duration: Duration,
     lat: f64, lon: f64, alt: f64,
 ) -> Result<Vec<PassData>, PassesCalculationError> {
-    let mut satrec = find_satrec(tle_file_path, satellite_name)?;
-
     let observer = satellite::Geodedic {
         longitude: lon * satellite::constants::DEG_2_RAD,
         latitude: lat * satellite::constants::DEG_2_RAD,
@@ -131,7 +167,7 @@ pub fn get_satellite_passes(
 
     let mut get_elevation = |shift_minutes: f64| -> f64 {
         let current_time = start_time + Duration::seconds((shift_minutes * 60.0) as i64);
-        get_elevation(&mut satrec, &observer, current_time)
+        get_elevation_safe(&satrec, &observer, current_time)
     };
 
     let mut result = vec![];
@@ -178,12 +214,19 @@ pub fn get_satellite_passes(
                     let apogee_elevation = get_elevation(apogee_mins) * satellite::constants::RAD_TO_DEG;
                     let apogee_time = start_time + Duration::seconds((60.0 * apogee_mins) as i64);
 
+                    let rise_azimuth = get_observer_look(&satrec, rt, &observer)?.azimuth;
+                    let fall_azimuth = get_observer_look(&satrec, fall_time, &observer)?.azimuth;
+                    let apogee_azimuth = get_observer_look(&satrec, apogee_time, &observer)?.azimuth;
+
                     let pass = PassData {
-                        satellite_name: satellite_name.to_string(),
+                        satellite_name: satrec.name.clone().unwrap_or("N/A".to_string()),
                         rise_time: rt,
-                        fall_time,
+                        rise_azimuth,
                         apogee_time,
                         apogee_elevation,
+                        apogee_azimuth,
+                        fall_time,
+                        fall_azimuth,
                     };
 
                     result.push(pass);
@@ -198,12 +241,13 @@ pub fn get_satellite_passes(
     Ok(result)
 }
 
-pub fn get_observer_look(
-    tle_file_path: &str, satellite_name: &str,
-    time: DateTime<Utc>,
+pub fn get_filtered_passes(
+    satrecs: Vec<&satellite::io::Satrec>,
+    start_time: DateTime<Utc>, duration: Duration,
+    min_elevation: f64, min_apogee: f64,
     lat: f64, lon: f64, alt: f64,
-) -> Result<satellite::Bearing, PassesCalculationError> {
-    let mut satrec = find_satrec(tle_file_path, satellite_name)?;
+) -> Result<Vec<PassData>, PassesCalculationError> {
+    let min_elevation_rad = min_elevation * satellite::constants::DEG_2_RAD;
 
     let observer = satellite::Geodedic {
         longitude: lon * satellite::constants::DEG_2_RAD,
@@ -211,30 +255,11 @@ pub fn get_observer_look(
         height: alt,
     };
 
-    let propogation = match satellite::propogation::propogate_datetime(&mut satrec, time) {
-        Ok(propogation) => propogation,
-        Err(_) => return Err(PassesCalculationError::PropogationError)
-    };
-    let gmst = satellite::propogation::gstime::gstime_datetime(time);
-    let position_ecf = satellite::transforms::eci_to_ecf(&propogation.position, gmst);
-    let look_angles = satellite::transforms::ecf_to_look_angles(&observer, &position_ecf);
-
-    Ok(look_angles)
-}
-
-pub fn get_filtered_passes(
-    tle_file_path: &str, satellite_names: Vec<&str>,
-    start_time: DateTime<Utc>, duration: Duration,
-    min_elevation: f64, min_apogee: f64,
-    lat: f64, lon: f64, alt: f64,
-) -> Result<Vec<PassData>, PassesCalculationError> {
-    let min_elevation_rad = min_elevation * satellite::constants::DEG_2_RAD;
-
     let mut all_passes = vec![];
 
-    for satellite_name in satellite_names {
+    for satrec in satrecs {
         let passes = get_satellite_passes(
-            tle_file_path, satellite_name,
+            satrec,
             start_time, duration,
             lat, lon, alt,
         )?;
@@ -246,19 +271,12 @@ pub fn get_filtered_passes(
             })
             .collect();
 
-        let mut satrec = find_satrec(tle_file_path, satellite_name)?;
-        let observer = satellite::Geodedic {
-            longitude: lon * satellite::constants::DEG_2_RAD,
-            latitude: lat * satellite::constants::DEG_2_RAD,
-            height: alt,
-        };
-
         for pass_data in &mut passes {
             let rise_time = pass_data.rise_time;
 
-            let mut get_elevation = |shift_minutes: f64| -> f64 {
+            let get_elevation = |shift_minutes: f64| -> f64 {
                 let current_time = rise_time + Duration::seconds((shift_minutes * 60.0) as i64);
-                get_elevation(&mut satrec, &observer, current_time)
+                get_elevation_safe(satrec, &observer, current_time)
             };
 
             let mut prev_elevation = get_elevation(0.0);
@@ -284,13 +302,13 @@ pub fn get_filtered_passes(
             prev_elevation = get_elevation(pass_duration);
 
             for shift in (0..=pass_duration as i64 - 1).rev() {
-                let current_elevation = get_elevation(shift as f64);
+                let current_elevation = get_elevation(shift as f64) - min_elevation_rad;
 
-                if prev_elevation <= min_elevation_rad && min_elevation_rad <= current_elevation {
+                if prev_elevation.is_sign_negative() && current_elevation.is_sign_positive() {
                     let fall_mins = get_root(
                         |shift| { get_elevation(shift) - min_elevation_rad },
-                        (shift + 1) as f64,
-                        shift as f64,
+                        (shift + 2) as f64,  // +2 на случай если длительность пролета дробная и
+                        shift as f64,        // момент смены знака приходиться на дробную чатсть
                     )?;
 
                     let fall_mins_from_end = pass_duration - fall_mins;
@@ -310,4 +328,44 @@ pub fn get_filtered_passes(
     Ok(all_passes)
 }
 
+pub fn get_trajectory(
+    satrec: &satellite::io::Satrec,
+    start_time: DateTime<Utc>, duration: Duration,
+) -> Result<Vec<satellite::Geodedic>, PassesCalculationError> {
+    let mut result = vec![];
+
+    for shift in 0..duration.num_seconds() {
+        let current_time = start_time + Duration::seconds(shift);
+
+        let sat_pos = get_satellite_pos(&satrec, current_time)?;
+
+        result.push(sat_pos);
+    }
+
+    Ok(result)
+}
+
+pub fn get_observer_trajectory(
+    satrec: &satellite::io::Satrec,
+    start_time: DateTime<Utc>, duration: Duration,
+    lat: f64, lon: f64, alt: f64,
+) -> Result<Vec<satellite::Bearing>, PassesCalculationError> {
+    let observer = satellite::Geodedic {
+        longitude: lon * satellite::constants::DEG_2_RAD,
+        latitude: lat * satellite::constants::DEG_2_RAD,
+        height: alt,
+    };
+
+    let mut result = vec![];
+
+    for shift in 1..=duration.num_seconds() {
+        let current_time = start_time + Duration::seconds(shift);
+
+        let look_angles = get_observer_look(&satrec, current_time, &observer)?;
+
+        result.push(look_angles);
+    }
+
+    Ok(result)
+}
 

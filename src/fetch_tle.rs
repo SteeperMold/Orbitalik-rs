@@ -11,14 +11,14 @@ pub enum TleFetchingError {
 
 #[derive(Deserialize, Debug)]
 pub struct FetchingSettings {
-    tle_urls: Vec<String>,
+    pub tle_urls: Vec<String>,
     pub delay_seconds: u64,
-    do_track_everything: bool,
-    satellites_to_track: Vec<String>,
+    pub do_track_everything: bool,
+    pub satellites_to_track: Vec<String>,
 }
 
 pub fn read_settings(file_path: &str) -> FetchingSettings {
-    let file = std::fs::File::open(file_path).expect("Tle fetching settings not found");
+    let file = std::fs::File::open(file_path).expect("Tle fetching settings must be created");
     serde_json::from_reader(file).expect("Json was not well-formatted")
 }
 

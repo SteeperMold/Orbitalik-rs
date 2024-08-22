@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+    background-color: #020202;
+    color: rgb(248 250 252);
+}
+
+.react-autosuggest__container {
+    position: relative;
+}
+
+.react-autosuggest__input {
+    width: 100%;
+    color: rgb(156 163 175);
+    background: transparent;
+    border: none;
+    outline: none;
+}
+
+.react-autosuggest__suggestions-container {
+    position: absolute;
+    top: 1.5rem;
+    left: -15.5%;
+    background-color: rgb(31 41 55);
+    width: 160%;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0;
+}
+
+.react-autosuggest__suggestion {
+    padding: 0.1rem 1.5rem;
+    border-radius: 0.375rem;
+}
+
+.react-autosuggest__suggestion:hover {
+    background-color: rgb(55 65 81);
+    cursor: pointer;
+}
+
+.react-autosuggest__suggestion--highlighted {
+    background-color: rgb(55 65 81);
+}

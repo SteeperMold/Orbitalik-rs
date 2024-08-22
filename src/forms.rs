@@ -20,7 +20,7 @@ fn validate_local_datetime(value: &str) -> Result<(), ValidationError> {
 }
 
 #[derive(Serialize, Deserialize, Validate, Debug)]
-pub struct FormData {
+pub struct PassesFormData {
     #[validate(range(min = 0.0, max = 360.0, message = "Широта должна быть от 0 до 360"))]
     pub lat: f64,
     #[validate(range(min = 0.0, max = 90.0, message = "Долгота должна быть от 0 до 90"))]
@@ -35,4 +35,16 @@ pub struct FormData {
     pub start_time: String,
     #[validate(range(min = 1, max = 240, message = "Длительность наблюдения не должна превышать 10 дней"))]
     pub duration: u8,
+}
+
+#[derive(Serialize, Deserialize, Validate, Debug)]
+pub struct SatelliteFormData {
+    #[validate(length(min = 1, max = 32))]
+    pub satellite_name: String,
+    #[validate(range(min = 0.0, max = 360.0, message = "Широта должна быть от 0 до 360"))]
+    pub lat: f64,
+    #[validate(range(min = 0.0, max = 90.0, message = "Долгота должна быть от 0 до 90"))]
+    pub lon: f64,
+    #[validate(range(min = 0.0, max = 10000.0, message = "Слишком большая высота"))]
+    pub alt: f64,
 }
