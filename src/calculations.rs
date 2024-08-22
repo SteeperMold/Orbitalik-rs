@@ -157,14 +157,8 @@ fn get_root<F>(mut fun: F, start: f64, end: f64) -> Result<f64, PassesCalculatio
 pub fn get_satellite_passes(
     satrec: &satellite::io::Satrec,
     start_time: DateTime<Utc>, duration: Duration,
-    lat: f64, lon: f64, alt: f64,
+    observer: &satellite::Geodedic,
 ) -> Result<Vec<PassData>, PassesCalculationError> {
-    let observer = satellite::Geodedic {
-        longitude: lon * satellite::constants::DEG_2_RAD,
-        latitude: lat * satellite::constants::DEG_2_RAD,
-        height: alt,
-    };
-
     let mut get_elevation = |shift_minutes: f64| -> f64 {
         let current_time = start_time + Duration::seconds((shift_minutes * 60.0) as i64);
         get_elevation_safe(&satrec, &observer, current_time)
@@ -245,15 +239,9 @@ pub fn get_filtered_passes(
     satrecs: Vec<&satellite::io::Satrec>,
     start_time: DateTime<Utc>, duration: Duration,
     min_elevation: f64, min_apogee: f64,
-    lat: f64, lon: f64, alt: f64,
+    observer: &satellite::Geodedic,
 ) -> Result<Vec<PassData>, PassesCalculationError> {
     let min_elevation_rad = min_elevation * satellite::constants::DEG_2_RAD;
-
-    let observer = satellite::Geodedic {
-        longitude: lon * satellite::constants::DEG_2_RAD,
-        latitude: lat * satellite::constants::DEG_2_RAD,
-        height: alt,
-    };
 
     let mut all_passes = vec![];
 
@@ -261,7 +249,7 @@ pub fn get_filtered_passes(
         let passes = get_satellite_passes(
             satrec,
             start_time, duration,
-            lat, lon, alt,
+            &observer,
         )?;
 
         let mut passes: Vec<PassData> = passes.into_iter()
@@ -348,20 +336,14 @@ pub fn get_trajectory(
 pub fn get_observer_trajectory(
     satrec: &satellite::io::Satrec,
     start_time: DateTime<Utc>, duration: Duration,
-    lat: f64, lon: f64, alt: f64,
+    observer: &satellite::Geodedic,
 ) -> Result<Vec<satellite::Bearing>, PassesCalculationError> {
-    let observer = satellite::Geodedic {
-        longitude: lon * satellite::constants::DEG_2_RAD,
-        latitude: lat * satellite::constants::DEG_2_RAD,
-        height: alt,
-    };
-
     let mut result = vec![];
 
     for shift in 1..=duration.num_seconds() {
         let current_time = start_time + Duration::seconds(shift);
 
-        let look_angles = get_observer_look(&satrec, current_time, &observer)?;
+        let look_angles = get_observer_look(&satrec, current_time, observer)?;
 
         result.push(look_angles);
     }

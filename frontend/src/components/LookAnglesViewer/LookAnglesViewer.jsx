@@ -13,12 +13,12 @@ const LookAnglesViewer = forwardRef(({className, lookAngles}, ref) => {
 
     return <>
         <tr>
-            <th className={className}>Азимут, °</th>
-            <th className={className}>{lookAngles[currentIndex].az.toFixed(3)}</th>
+            <th className={className}>Азимут</th>
+            <th className={className}>{lookAngles[currentIndex].az.toFixed(3)} °</th>
         </tr>
         <tr>
-            <th className={className}>Элевация, °</th>
-            <th className={className}>{lookAngles[currentIndex].el.toFixed(3)}</th>
+            <th className={className}>Элевация</th>
+            <th className={className}>{lookAngles[currentIndex].el.toFixed(3)} °</th>
         </tr>
     </>;
 });

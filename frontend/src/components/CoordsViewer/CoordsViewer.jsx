@@ -13,16 +13,16 @@ const CoordsViewer = forwardRef(({className, trajectory}, ref) => {
 
     return <>
         <tr>
-            <th className={className}>Широта, °</th>
-            <th className={className}>{trajectory[currentIndex].lat.toFixed(3)}</th>
+            <th className={className}>Широта</th>
+            <th className={className}>{trajectory[currentIndex].lat.toFixed(3)} °</th>
         </tr>
         <tr>
-            <th className={className}>Долгота, °</th>
-            <th className={className}>{trajectory[currentIndex].lon.toFixed(3)}</th>
+            <th className={className}>Долгота</th>
+            <th className={className}>{trajectory[currentIndex].lon.toFixed(3)} °</th>
         </tr>
         <tr>
-            <th className={className}>Высота, км</th>
-            <th className={className}>{trajectory[currentIndex].alt.toFixed(3)}</th>
+            <th className={className}>Высота</th>
+            <th className={className}>{trajectory[currentIndex].alt.toFixed(3)} км</th>
         </tr>
     </>;
 });

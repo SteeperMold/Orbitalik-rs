@@ -1,6 +1,6 @@
 use actix_web::{HttpResponse, web};
 use validator::Validate;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
 
 use super::{AppState, calculations};
@@ -50,43 +50,67 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
         return HttpResponse::BadRequest().json(error);
     }
 
-    let tle_path = &std::env::var("TLE_FILE_PATH").unwrap();
-    let satrec = match calculations::find_satrec(tle_path, &form.satellite_name) {
-        Ok(satrec) => satrec,
-        Err(error) => return HttpResponse::BadRequest().body(format!("{:?}", error)),
-    };
     let start_time = Utc::now();
 
-    let trajectory = match calculations::get_trajectory(
+    let observer = satellite::Geodedic {
+        longitude: form.lon * satellite::constants::DEG_2_RAD,
+        latitude: form.lat * satellite::constants::DEG_2_RAD,
+        height: form.alt,
+    };
+
+    macro_rules! unwrap_or_return_response {
+        ($result:expr) => {
+            match $result {
+                Ok(data) => data,
+                Err(error) => return HttpResponse::BadRequest().body(format!("{:?}", error))
+            }
+        };
+    }
+
+    let satrec = unwrap_or_return_response!(calculations::find_satrec(
+        &std::env::var("TLE_FILE_PATH").unwrap(),
+        &form.satellite_name,
+    ));
+
+    let trajectory = unwrap_or_return_response!(calculations::get_trajectory(
         &satrec, start_time - Duration::hours(1), Duration::hours(2),
-    ) {
-        Ok(trajectory) => trajectory,
-        Err(error) => return HttpResponse::BadRequest().body(format!("{:?}", error)),
-    }.into_iter().map(Into::into).collect();
+    )).into_iter().map(Into::into).collect();
 
-    let look_angles = match calculations::get_observer_trajectory(
-        &satrec,
-        start_time, Duration::hours(1),
-        form.lat, form.lon, form.alt,
-    ) {
-        Ok(passes) => passes,
-        Err(error) => return HttpResponse::BadRequest().body(format!("{:?}", error)),
-    }.into_iter().map(Into::into).collect();
+    let look_angles = unwrap_or_return_response!(calculations::get_observer_trajectory(
+        &satrec, start_time, Duration::hours(1), &observer,
+    )).into_iter().map(Into::into).collect();
 
-    let passes = match calculations::get_satellite_passes(
-        &satrec,
-        start_time, Duration::hours(24),
-        form.lat, form.lon, form.alt,
-    ) {
-        Ok(passes) => passes,
-        Err(error) => return HttpResponse::BadRequest().body(format!("{:?}", error)),
-    }.into_iter().map(Into::into).collect();
+    let passes = unwrap_or_return_response!(calculations::get_satellite_passes(
+        &satrec, start_time, Duration::hours(24), &observer,
+    )).into_iter().map(Into::into).collect();
 
-    let norad_id: u64 = satrec.satnum.parse().expect("Satrec.satnum should always be a number");
+    let norad_id = satrec.satnum;
+    let inclination = satrec.inclo * satellite::constants::RAD_TO_DEG;
+    let eccentricity = satrec.ecco;
+    let period_minutes = satellite::constants::TWO_PI / satrec.no;
+    let mean_motion = satrec.no * satellite::constants::RAD_TO_DEG;
+    let argument_of_pericenter = satrec.argpo * satellite::constants::RAD_TO_DEG;
+    let mean_anomaly = satrec.mo * satellite::constants::RAD_TO_DEG;
+    let raan = satrec.nodeo * satellite::constants::RAD_TO_DEG;
+
+    let year = if satrec.epochyr < 57 { 2000 + satrec.epochyr } else { 1900 + satrec.epochyr };
+    let start_of_year_date = NaiveDate::from_ymd_opt(year as i32, 1, 1)
+        .expect("January 1st of Satrec.epochyr should exist");
+    let start_of_year = NaiveDateTime::from(start_of_year_date);
+    let epoch_naive = start_of_year + Duration::seconds((satrec.epochdays * 86400.0) as i64);
+    let epoch = epoch_naive.and_utc();
 
     #[derive(Serialize)]
     struct SatelliteData {
-        norad_id: u64,
+        norad_id: String,
+        inclination: f64,
+        eccentricity: f64,
+        period_minutes: f64,
+        mean_motion: f64,
+        argument_of_pericenter: f64,
+        mean_anomaly: f64,
+        raan: f64,  // Долгота восходящего угла
+        epoch: DateTime<Utc>,
         trajectory: Vec<SerializableGeodedic>,
         look_angles: Vec<SerializableBearing>,
         passes: Vec<SerializablePassData>,
@@ -94,6 +118,14 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
 
     let response = SatelliteData {
         norad_id,
+        inclination,
+        eccentricity,
+        period_minutes,
+        mean_motion,
+        argument_of_pericenter,
+        mean_anomaly,
+        raan,
+        epoch,
         trajectory,
         look_angles,
         passes,
