@@ -1,6 +1,7 @@
 import {useState, useEffect, useRef} from "react";
 import axios from "axios";
 import Autosuggest from 'react-autosuggest';
+import levenshtein from 'js-levenshtein';
 import {baseURL} from "~/src/App";
 import lens_svg from "./lens.svg";
 
@@ -19,9 +20,18 @@ const Searchbar = () => {
     }, []);
 
     const onSuggestionsFetchRequested = ({value}) => {
-        const regex = new RegExp(value.trim(), 'i');
-        const suggestions = items.filter(item => regex.test(item));
-        setSuggestions(suggestions);
+        value = value.trim().toLowerCase();
+
+        const suggestions = items
+            .filter(item => item.toLowerCase().includes(value))
+            .sort((left, right) => {
+                const leftDistance = levenshtein(left.toLowerCase(), value);
+                const rightDistance = levenshtein(right.toLowerCase(), value);
+
+                return leftDistance - rightDistance;
+            });
+
+        setSuggestions(suggestions.slice(0, 8));
     };
 
     const inputProps = {
@@ -39,7 +49,8 @@ const Searchbar = () => {
     };
 
     return (
-        <form ref={formRef} method="get" action="/satellite" className="flex items-center py-2 px-6 bg-gray-800 rounded-md">
+        <form ref={formRef} method="get" action="/satellite"
+              className="flex items-center py-2 px-6 bg-gray-800 rounded-md">
             <Autosuggest
                 suggestions={suggestions}
                 onSuggestionsFetchRequested={onSuggestionsFetchRequested}

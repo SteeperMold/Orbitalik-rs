@@ -24,12 +24,11 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("TLE_FILE_PATH", "data/tle.txt");
 
     actix_rt::spawn(async {
-        let path = std::env::var("TLE_FETCHING_SETTINGS_PATH").unwrap();
-        let fetching_settings = fetch_tle::read_settings(&path);
+        let mut fetching_settings = fetch_tle::read_settings().await;
         let mut interval = actix_rt::time::interval(Duration::from_secs(fetching_settings.delay_seconds));
         loop {
             interval.tick().await;
-            match fetch_tle::fetch_tle(&fetching_settings).await {
+            match fetch_tle::fetch_tle(&mut fetching_settings).await {
                 Ok(_) => log::info!("Tle fethcing success"),
                 Err(error) => log::warn!("Failed to fetch tle with this error: {:?}", error),
             };

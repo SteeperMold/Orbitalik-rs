@@ -4,8 +4,8 @@ use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
 
 use super::{AppState, calculations};
+use super::fetch_tle;
 use super::forms::{PassesFormData, SatelliteFormData};
-use super::fetch_tle::{read_settings};
 use super::serializers::{SerializableGeodedic, SerializableBearing, SerializablePassData};
 
 pub async fn get_passes(data: web::Data<AppState>) -> HttpResponse {
@@ -39,8 +39,7 @@ pub async fn show_passes(form: web::Query<PassesFormData>) -> HttpResponse {
 }
 
 pub async fn get_satellites_list() -> HttpResponse {
-    let path = std::env::var("TLE_FETCHING_SETTINGS_PATH").unwrap();
-    let tle_fetching_settings = read_settings(&path);
+    let tle_fetching_settings = fetch_tle::read_settings().await;
 
     HttpResponse::Ok().json(tle_fetching_settings.satellites_to_track)
 }
@@ -95,7 +94,7 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
 
     let year = if satrec.epochyr < 57 { 2000 + satrec.epochyr } else { 1900 + satrec.epochyr };
     let start_of_year_date = NaiveDate::from_ymd_opt(year as i32, 1, 1)
-        .expect("January 1st of Satrec.epochyr should exist");
+        .expect("January 1st of year Satrec.epochyr should exist");
     let start_of_year = NaiveDateTime::from(start_of_year_date);
     let epoch_naive = start_of_year + Duration::seconds((satrec.epochdays * 86400.0) as i64);
     let epoch = epoch_naive.and_utc();
