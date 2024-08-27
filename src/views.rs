@@ -71,19 +71,7 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
         &form.satellite_name,
     ));
 
-    let trajectory = unwrap_or_return_response!(calculations::get_trajectory(
-        &satrec, start_time - Duration::hours(1), Duration::hours(2),
-    )).into_iter().map(Into::into).collect();
-
-    let look_angles = unwrap_or_return_response!(calculations::get_observer_trajectory(
-        &satrec, start_time, Duration::hours(1), &observer,
-    )).into_iter().map(Into::into).collect();
-
-    let passes = unwrap_or_return_response!(calculations::get_satellite_passes(
-        &satrec, start_time, Duration::hours(24), &observer,
-    )).into_iter().map(Into::into).collect();
-
-    let norad_id = satrec.satnum;
+    let norad_id = satrec.satnum.clone();
     let inclination = satrec.inclo * satellite::constants::RAD_TO_DEG;
     let eccentricity = satrec.ecco;
     let period_minutes = satellite::constants::TWO_PI / satrec.no;
@@ -99,6 +87,26 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
     let epoch_naive = start_of_year + Duration::seconds((satrec.epochdays * 86400.0) as i64);
     let epoch = epoch_naive.and_utc();
 
+    let is_geostationary = (period_minutes - 1436.0).abs() < 10.0;
+
+    let trajectory = unwrap_or_return_response!(calculations::get_trajectory(
+        &satrec, start_time - Duration::hours(1), Duration::hours(2),
+    )).into_iter().map(Into::into).collect();
+
+    let look_angles = unwrap_or_return_response!(calculations::get_observer_trajectory(
+        &satrec, start_time, Duration::hours(1), &observer,
+    )).into_iter().map(Into::into).collect();
+
+    let passes;
+
+    if !is_geostationary {
+        passes = unwrap_or_return_response!(calculations::get_satellite_passes(
+            &satrec, start_time, Duration::hours(24), &observer,
+        )).into_iter().map(Into::into).collect();
+    } else {
+        passes = vec![];
+    }
+
     #[derive(Serialize)]
     struct SatelliteData {
         norad_id: String,
@@ -110,6 +118,7 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
         mean_anomaly: f64,
         raan: f64,  // Долгота восходящего угла
         epoch: DateTime<Utc>,
+        is_geostationary: bool,
         trajectory: Vec<SerializableGeodedic>,
         look_angles: Vec<SerializableBearing>,
         passes: Vec<SerializablePassData>,
@@ -125,6 +134,7 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
         mean_anomaly,
         raan,
         epoch,
+        is_geostationary,
         trajectory,
         look_angles,
         passes,
