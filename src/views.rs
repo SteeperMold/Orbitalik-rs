@@ -3,39 +3,18 @@ use validator::Validate;
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
 
-use super::{AppState, calculations};
-use super::fetch_tle;
-use super::forms::{PassesFormData, SatelliteFormData};
+use super::{calculations, fetch_tle};
+use super::forms::{PassesListForm, SatelliteDataForm, TrajectoryForm};
 use super::serializers::{SerializableGeodedic, SerializableBearing, SerializablePassData};
 
-pub async fn get_passes(data: web::Data<AppState>) -> HttpResponse {
-    let mut ctx = tera::Context::new();
-    ctx.insert("active_tab", "passes");
-    let rendered = data.tera.render("get_passes.html", &ctx).unwrap();
-    HttpResponse::Ok().body(rendered)
-}
-
-pub async fn show_passes(form: web::Query<PassesFormData>) -> HttpResponse {
-    if let Err(error) = form.validate() {
-        return HttpResponse::BadRequest().json(error);
-    }
-
-    // let start_time = NaiveDateTime::parse_from_str(&form.start_time, "%Y-%m-%dT%H:%M")
-    //     .expect("Parsing can't fail because datetime string was validated")
-    //     .and_utc();
-    //
-    // let passes = match calculations::get_filtered_passes(
-    //     &std::env::var("TLE_FILE_PATH").unwrap(),
-    //     vec!["METEOR-M2 2", "METEOR-M2 3", "NOAA 18", "NOAA 19", "METOP-B", "METOP-C", "ISS (ZARYA)"],
-    //     start_time, Duration::hours(form.duration as i64),
-    //     form.min_elevation, form.min_apogee,
-    //     form.lat, form.lon, form.alt / 1000.0,
-    // ) {
-    //     Ok(passes) => passes,
-    //     Err(error) => return HttpResponse::BadRequest().body(format!("{}", error)),
-    // };
-
-    HttpResponse::Ok().body(format!("{:#?}", "developer gnida"))
+macro_rules! unwrap_or_return_response {
+    ($result:expr) => {
+        match $result {
+            Ok(data) => data,
+            Err(_) => return HttpResponse::BadRequest()
+                .body("{\"error\": \"Failed to calculate satellite data\"}")
+        }
+    };
 }
 
 pub async fn get_satellites_list() -> HttpResponse {
@@ -44,7 +23,7 @@ pub async fn get_satellites_list() -> HttpResponse {
     HttpResponse::Ok().json(tle_fetching_settings.satellites_to_track)
 }
 
-pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResponse {
+pub async fn get_satellite_data(form: web::Query<SatelliteDataForm>) -> HttpResponse {
     if let Err(error) = form.validate() {
         return HttpResponse::BadRequest().json(error);
     }
@@ -54,23 +33,15 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
     let observer = satellite::Geodedic {
         longitude: form.lon * satellite::constants::DEG_2_RAD,
         latitude: form.lat * satellite::constants::DEG_2_RAD,
-        height: form.alt,
+        height: form.alt / 1000.0,
     };
-
-    macro_rules! unwrap_or_return_response {
-        ($result:expr) => {
-            match $result {
-                Ok(data) => data,
-                Err(error) => return HttpResponse::BadRequest().body(format!("{:?}", error))
-            }
-        };
-    }
 
     let satrec = unwrap_or_return_response!(calculations::find_satrec(
         &std::env::var("TLE_FILE_PATH").unwrap(),
         &form.satellite_name,
     ));
 
+    let satellite_name = satrec.name.clone().unwrap_or("Unknown satellite".to_string());
     let norad_id = satrec.satnum.clone();
     let inclination = satrec.inclo * satellite::constants::RAD_TO_DEG;
     let eccentricity = satrec.ecco;
@@ -109,6 +80,7 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
 
     #[derive(Serialize)]
     struct SatelliteData {
+        satellite_name: String,
         norad_id: String,
         inclination: f64,
         eccentricity: f64,
@@ -125,6 +97,7 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
     }
 
     let response = SatelliteData {
+        satellite_name,
         norad_id,
         inclination,
         eccentricity,
@@ -142,3 +115,88 @@ pub async fn get_satellite_data(form: web::Query<SatelliteFormData>) -> HttpResp
 
     HttpResponse::Ok().json(response)
 }
+
+pub async fn get_passes_list(form: web::Query<PassesListForm>) -> HttpResponse {
+    if let Err(error) = form.validate() {
+        return HttpResponse::BadRequest().json(error);
+    }
+
+    let tle_file_path = &std::env::var("TLE_FILE_PATH").unwrap();
+
+    let satrecs: Vec<_> = form.satellites.split(",")
+        .map(|satellite| {
+            calculations::find_satrec(&tle_file_path, satellite)
+                .expect("Satrec should be found because satellites list was validated")
+        })
+        .collect();
+
+    let start_time = NaiveDateTime::parse_from_str(&form.start_time, "%Y-%m-%dT%H:%M")
+        .expect("Parsing shouldn't fail because datetime string was validated")
+        .and_utc();
+
+    let duration = Duration::hours(form.duration as i64);
+
+    let observer = satellite::Geodedic {
+        latitude: form.lat * satellite::constants::DEG_2_RAD,
+        longitude: form.lon * satellite::constants::DEG_2_RAD,
+        height: form.alt / 1000.0,
+    };
+
+    let passes = unwrap_or_return_response!(calculations::get_filtered_passes(
+        satrecs,
+        start_time, duration,
+        form.min_elevation, form.min_apogee,
+        &observer,
+    ));
+
+    HttpResponse::Ok().json(passes)
+}
+
+pub async fn get_trajectory(form: web::Query<TrajectoryForm>) -> HttpResponse {
+    if let Err(error) = form.validate() {
+        return HttpResponse::BadRequest().json(error);
+    }
+
+    let satrec = unwrap_or_return_response!(calculations::find_satrec(
+        &std::env::var("TLE_FILE_PATH").unwrap(),
+        &form.satellite,
+    ));
+
+    let start_time = NaiveDateTime::parse_from_str(&form.start_time, "%Y-%m-%dT%H:%M")
+        .expect("Parsing shouldn't fail because datetime string was validated")
+        .and_utc();
+
+    let end_time = NaiveDateTime::parse_from_str(&form.end_time, "%Y-%m-%dT%H:%M")
+        .expect("Parsing shouldn't fail because datetime string was validated")
+        .and_utc();
+
+    let duration = end_time - start_time;
+
+    let observer = satellite::Geodedic {
+        latitude: form.lat * satellite::constants::DEG_2_RAD,
+        longitude: form.lon * satellite::constants::DEG_2_RAD,
+        height: form.alt / 1000.0,
+    };
+
+    let trajectory = unwrap_or_return_response!(calculations::get_trajectory(
+        &satrec, start_time, duration,
+    )).into_iter().map(Into::into).collect();
+
+    let look_angles = unwrap_or_return_response!(calculations::get_observer_trajectory(
+        &satrec, start_time, duration, &observer,
+    )).into_iter().map(Into::into).collect();
+
+    #[derive(Serialize)]
+    struct TrajectoryData {
+        trajectory: Vec<SerializableGeodedic>,
+        look_angles: Vec<SerializableBearing>,
+    }
+
+    let response = TrajectoryData {
+        trajectory,
+        look_angles,
+    };
+
+    HttpResponse::Ok().json(response)
+}
+

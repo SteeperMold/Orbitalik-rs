@@ -1,7 +1,8 @@
 import {useState, forwardRef, useImperativeHandle} from "react";
 import {differenceInSeconds} from "date-fns";
+import TableItem from "~/src/shared/components/TableItem";
 
-const LookAnglesViewer = forwardRef(({className, lookAngles}, ref) => {
+const LookAnglesViewer = forwardRef(({lookAngles}, ref) => {
     const [currentIndex, setCurrentIndex] = useState(0);
     const startTime = new Date();
 
@@ -13,12 +14,12 @@ const LookAnglesViewer = forwardRef(({className, lookAngles}, ref) => {
 
     return <>
         <tr>
-            <th className={className}>Азимут</th>
-            <th className={className}>{lookAngles[currentIndex].az.toFixed(3)} °</th>
+            <TableItem>Азимут</TableItem>
+            <TableItem>{lookAngles[currentIndex].az.toFixed(3)} °</TableItem>
         </tr>
         <tr>
-            <th className={className}>Элевация</th>
-            <th className={className}>{lookAngles[currentIndex].el.toFixed(3)} °</th>
+            <TableItem>Элевация</TableItem>
+            <TableItem>{lookAngles[currentIndex].el.toFixed(3)} °</TableItem>
         </tr>
     </>;
 });

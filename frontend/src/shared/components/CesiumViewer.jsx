@@ -1,16 +1,15 @@
 import {useEffect, useRef, forwardRef, useImperativeHandle} from "react";
-import {Viewer, Entity, PolylineGraphics, PointGraphics,} from "resium";
-import {Cartesian3, Color} from "cesium";
+import {Viewer, Entity, PolylineGraphics, PointGraphics} from "resium";
+import {Cartesian3, Color, TileMapServiceImageryProvider, buildModuleUrl, ImageryLayer} from "cesium";
 import {differenceInSeconds} from "date-fns";
 
 const CesiumViewer = forwardRef(({className, trajectory, observerPosition}, ref) => {
     const satellitePointRef = useRef(null);
     const startTime = new Date();
-    let currentIndex = trajectory.length / 2;
 
     useImperativeHandle(ref, () => ({
         update: () => {
-            currentIndex = trajectory.length / 2 + differenceInSeconds(new Date(), startTime);
+            const currentIndex = trajectory.length / 2 + differenceInSeconds(new Date(), startTime);
 
             satellitePointRef.current?.cesiumElement.position.setValue(Cartesian3.fromDegrees(
                 trajectory[currentIndex].lon,
@@ -23,18 +22,26 @@ const CesiumViewer = forwardRef(({className, trajectory, observerPosition}, ref)
     //     document.querySelector('.cesium-widget-credits').remove();  // TODO вернуть
     // }, []);
 
-    const initialSatellitePosition = Cartesian3.fromDegrees(
-        trajectory[trajectory.length / 2].lon,
-        trajectory[trajectory.length / 2].lat,
-    );
-
-    return <Viewer className={className} animation={false} timeline={false}>
+    return <Viewer
+        className={className}
+        animation={false}
+        timeline={false}
+        baseLayerPicker={false}
+        geocoder={false}
+        baseLayer={
+            ImageryLayer.fromProviderAsync(
+                TileMapServiceImageryProvider.fromUrl(
+                    buildModuleUrl('Assets/Textures/NaturalEarthII')
+                )
+            )
+        }
+    >
         <Entity
             name="Траектория спутника"
             description="Траектория спутника за час до текущего времени, и на час вперед"
         >
             <PolylineGraphics
-                positions={trajectory.map((geodedic) => Cartesian3.fromDegrees(geodedic.lon, geodedic.lat))}
+                positions={trajectory.map(geodedic => Cartesian3.fromDegrees(geodedic.lon, geodedic.lat))}
                 material={new Color(0, 1, 1, 1)}
                 width={3}
             />
@@ -43,7 +50,10 @@ const CesiumViewer = forwardRef(({className, trajectory, observerPosition}, ref)
         <Entity
             name="Текущее местонахождение спутника"
             ref={satellitePointRef}
-            position={initialSatellitePosition}
+            position={Cartesian3.fromDegrees(
+                trajectory[trajectory.length / 2].lon,
+                trajectory[trajectory.length / 2].lat,
+            )}
         >
             <PointGraphics
                 color={new Color(1, 0.6, 0, 1)}

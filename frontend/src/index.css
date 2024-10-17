@@ -7,11 +7,11 @@ html {
     color: rgb(248 250 252);
 }
 
-.react-autosuggest__container {
+.searchbar-container {
     position: relative;
 }
 
-.react-autosuggest__input {
+.searchbar-input {
     width: 100%;
     color: rgb(156 163 175);
     background: transparent;
@@ -19,7 +19,7 @@ html {
     outline: none;
 }
 
-.react-autosuggest__suggestions-container {
+.searchbar-suggestions-container {
     position: absolute;
     top: 1.5rem;
     left: -15.5%;
@@ -29,16 +29,46 @@ html {
     padding: 0.5rem 0;
 }
 
-.react-autosuggest__suggestion {
+.searchbar-suggestion, .satellites-section-suggestion {
     padding: 0.1rem 1.5rem;
     border-radius: 0.375rem;
 }
 
-.react-autosuggest__suggestion:hover {
+.searchbar-suggestion:hover, .satellites-section-suggestion:hover {
     background-color: rgb(55 65 81);
     cursor: pointer;
 }
 
-.react-autosuggest__suggestion--highlighted {
+.searchbar-suggestion-highlighted, .satellites-section-suggestion-highlighted {
     background-color: rgb(55 65 81);
+}
+
+.satellites-section-container {
+    position: relative;
+    margin-left: 0.9rem;
+    width: 62.5%;
+}
+
+.satellites-section-input {
+    width: 160%;
+    color: rgb(156 163 175);
+    background-color: rgb(31 41 55);
+    border: none;
+    outline: none;
+    border-radius: 0.375rem;
+    margin-left: -15.5%;
+    padding: 0.5rem 1.5rem;
+}
+
+.satellites-section-suggestions-container {
+    position: absolute;
+    top: 2rem;
+    left: -15.5%;
+    width: 160%;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0;
+}
+
+.satellites-section-suggestions-container.opened {
+    background-color: rgb(31 41 55);
 }

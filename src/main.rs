@@ -1,19 +1,12 @@
 use std::time::Duration;
 use actix_web::{web, App, HttpServer, middleware::Logger};
 use actix_cors::Cors;
-use actix_files::Files;
-use tera::Tera;
 
 mod views;
 mod forms;
 mod calculations;
 mod fetch_tle;
 mod serializers;
-
-struct AppState {
-    tera: Tera,
-}
-
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -35,21 +28,15 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    let app_state = web::Data::new(AppState {
-        tera: Tera::new(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/**/*")).unwrap(),
-    });
-
-    HttpServer::new(move || {
+    HttpServer::new(|| {
         App::new()
             .wrap(Logger::default())
             .wrap(Cors::default().allow_any_origin().allow_any_method().allow_any_header())  // TODO Удалить
             .app_data(web::FormConfig::default().error_handler(forms::parse_error_handler))
-            .app_data(app_state.clone())
-            .service(Files::new("/static", "static").show_files_listing())
             .route("api/get-satellites-list", web::get().to(views::get_satellites_list))
             .route("api/get-satellite-data", web::get().to(views::get_satellite_data))
-            .route("/get-passes", web::get().to(views::get_passes))
-            .route("/passes", web::get().to(views::show_passes))
+            .route("api/get-passes-list", web::get().to(views::get_passes_list))
+            .route("api/get-trajectory", web::get().to(views::get_trajectory))
     }).bind(("127.0.0.1", 8080))?
         .run()
         .await

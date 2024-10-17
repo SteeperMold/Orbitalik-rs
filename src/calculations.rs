@@ -1,5 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
 use roots::{find_root_brent, SimpleConvergency};
+use serde::Serialize;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -14,7 +15,7 @@ pub enum PassesCalculationError {
     PropogationError,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct PassData {
     pub satellite_name: String,
     pub rise_time: DateTime<Utc>,
@@ -236,7 +237,7 @@ pub fn get_satellite_passes(
 }
 
 pub fn get_filtered_passes(
-    satrecs: Vec<&satellite::io::Satrec>,
+    satrecs: Vec<satellite::io::Satrec>,
     start_time: DateTime<Utc>, duration: Duration,
     min_elevation: f64, min_apogee: f64,
     observer: &satellite::Geodedic,
@@ -247,7 +248,7 @@ pub fn get_filtered_passes(
 
     for satrec in satrecs {
         let passes = get_satellite_passes(
-            satrec,
+            &satrec,
             start_time, duration,
             &observer,
         )?;
@@ -264,7 +265,7 @@ pub fn get_filtered_passes(
 
             let get_elevation = |shift_minutes: f64| -> f64 {
                 let current_time = rise_time + Duration::seconds((shift_minutes * 60.0) as i64);
-                get_elevation_safe(satrec, &observer, current_time)
+                get_elevation_safe(&satrec, &observer, current_time)
             };
 
             let mut prev_elevation = get_elevation(0.0);

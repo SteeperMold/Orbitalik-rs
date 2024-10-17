@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use std::io::Read;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Debug, thiserror::Error)]
@@ -26,6 +27,20 @@ pub async fn read_settings() -> FetchingSettings {
 
     let mut content = String::new();
     file.read_to_string(&mut content).await
+        .expect("Tle fetching settings file shouldn't be corrupted");
+
+    serde_json::from_str(&content).expect("Json should be well-formatted")
+}
+
+pub fn read_settings_sync() -> FetchingSettings {
+    let path = std::env::var("TLE_FETCHING_SETTINGS_PATH")
+        .expect("TLE_FETCHING_SETTINGS_PATH env variable should be set");
+
+    let mut file = std::fs::File::open(path)
+        .expect("Tle fetching settings should be created");
+
+    let mut content = String::new();
+    file.read_to_string(&mut content)
         .expect("Tle fetching settings file shouldn't be corrupted");
 
     serde_json::from_str(&content).expect("Json should be well-formatted")
@@ -90,7 +105,6 @@ pub async fn fetch_tle(settings: &mut FetchingSettings) -> Result<(), TleFetchin
 
             if !satellite_name.is_empty() &&
                 settings.satellites_to_track.contains(&satellite_name) {
-
                 for shift in 0..=2 {
                     filtered_tle.push_str(&format!("{}\n", lines[i + shift]));
                 }
